@@ -81,7 +81,7 @@ def test_run_sync_flow(
         {
             "_row_number": 2,
             "email": "old@example.com",
-            "phone": "0111",
+            "phone": "0901111111",
             "firstname": "Old",
             "status": "SUCCESS",
             "hubspot_id": "999",
@@ -90,7 +90,7 @@ def test_run_sync_flow(
         {
             "_row_number": 3,
             "email": "update@example.com",
-            "phone": "0222",
+            "phone": "0902222222",
             "firstname": "UpdateUser",
             "status": "NEW",
             "hubspot_id": "",
@@ -99,7 +99,7 @@ def test_run_sync_flow(
         {
             "_row_number": 4,
             "email": "new@example.com",
-            "phone": "0333",
+            "phone": "0903333333",
             "firstname": "NewUser",
             "status": "NEW",
             "hubspot_id": "",
@@ -131,15 +131,19 @@ def test_run_sync_flow(
     assert result.updated == 1
     assert result.failed == 1
 
-    # Verify update called with hub_123
+    # Verify update called with hub_123 and normalized phone
     mock_update_contact.assert_called_once_with(
         "hub_123",
-        {"email": "update@example.com", "phone": "0222", "firstname": "UpdateUser"},
+        {
+            "email": "update@example.com",
+            "phone": "+84902222222",
+            "firstname": "UpdateUser",
+        },
     )
 
-    # Verify create called with new@example.com
+    # Verify create called with new@example.com and normalized phone
     mock_create_contact.assert_called_once_with(
-        {"email": "new@example.com", "phone": "0333", "firstname": "NewUser"}
+        {"email": "new@example.com", "phone": "+84903333333", "firstname": "NewUser"}
     )
 
     # Verify batch_update_cells called with correct
@@ -154,6 +158,37 @@ def test_run_sync_flow(
         {"range": "D5", "values": [["ERROR"]]},
     ]
     assert call_data == expected_updates
+
+
+def test_run_sync_invalid_phone_error(mocker):
+    """run_sync should mark row as ERROR when phone number format is invalid."""
+    mocker.patch("core.gsheet_api.get_worksheet")
+    mock_read_rows = mocker.patch("core.gsheet_api.read_contact_rows")
+    mock_batch_update = mocker.patch("core.gsheet_api.batch_update_cells")
+    mock_find_contact_cls = mocker.patch("services.sync_service.FindContact")
+
+    headers = ["firstname", "email", "phone", "status", "hubspot_id", "error_message"]
+    records = [
+        {
+            "_row_number": 2,
+            "email": "user@example.com",
+            "phone": "0123456789",  # Invalid carrier prefix
+            "firstname": "BadPhoneUser",
+            "status": "NEW",
+            "hubspot_id": "",
+        }
+    ]
+    mock_read_rows.return_value = (headers, records)
+    mock_finder = mock_find_contact_cls.return_value
+    mock_finder.find.return_value = {}
+
+    result = run_sync()
+    assert result.failed == 1
+    assert result.created == 0
+    assert any(
+        "không đúng định dạng số di động Việt Nam" in err for err in result.errors
+    )
+    mock_batch_update.assert_called_once()
 
 
 def test_run_sync_retry_mode(mocker):
@@ -171,7 +206,7 @@ def test_run_sync_retry_mode(mocker):
         {
             "_row_number": 2,
             "email": "new@example.com",
-            "phone": "0111",
+            "phone": "0901111111",
             "firstname": "NewUser",
             "status": "NEW",
             "hubspot_id": "",
@@ -180,7 +215,7 @@ def test_run_sync_retry_mode(mocker):
         {
             "_row_number": 3,
             "email": "error@example.com",
-            "phone": "0222",
+            "phone": "0902222222",
             "firstname": "ErrorUser",
             "status": "ERROR",
             "hubspot_id": "",
@@ -200,7 +235,11 @@ def test_run_sync_retry_mode(mocker):
     assert result.total == 1
 
     mock_create_contact.assert_called_once_with(
-        {"email": "error@example.com", "phone": "0222", "firstname": "ErrorUser"}
+        {
+            "email": "error@example.com",
+            "phone": "+84902222222",
+            "firstname": "ErrorUser",
+        }
     )
     mock_batch_update.assert_called_once()
     assert result.created_contact_ids == ["hub_789"]
