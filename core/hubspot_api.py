@@ -187,3 +187,50 @@ def delete_contact(contact_id: str) -> bool:
     )
     response.raise_for_status()
     return True
+
+
+def get_formatted_contacts(
+    limit: int = 10,
+    after: Optional[str] = None,
+) -> tuple[list[dict], str]:
+    """Retrieve and format a list of contacts from HubSpot.
+
+    Fetches 'firstname', 'lastname', 'email', and 'phone', and combines
+    firstname and lastname into a single display name.
+
+    Args:
+        limit: Number of contacts to fetch per page (max 100).
+        after: Optional cursor string for pagination.
+
+    Returns:
+        A tuple of (formatted_contacts_list, next_after_cursor), where each
+        dict contains 'id', 'name', 'email', 'phone'.
+    """
+    clean_after = str(after).strip() if after else None
+    if clean_after == "":
+        clean_after = None
+
+    raw_contacts, next_cursor = retrieve_contacts(
+        limit=limit,
+        after=clean_after,
+        properties=["firstname", "lastname", "email", "phone"],
+    )
+
+    formatted = []
+    for contact in raw_contacts:
+        cid = str(contact.get("id", ""))
+        props = contact.get("properties", {}) or {}
+        first = str(props.get("firstname", "") or "").strip()
+        last = str(props.get("lastname", "") or "").strip()
+        full_name = f"{first} {last}".strip()
+
+        formatted.append(
+            {
+                "id": cid,
+                "name": full_name or "—",
+                "email": str(props.get("email", "") or "").strip() or "—",
+                "phone": str(props.get("phone", "") or "").strip() or "—",
+            }
+        )
+
+    return formatted, next_cursor

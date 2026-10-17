@@ -11,6 +11,7 @@ from requests.models import HTTPError
 
 import config
 from core import gsheet_api, hubspot_api
+from core.phone_utils import normalize_vn_phone
 
 
 class FindContact:
@@ -65,12 +66,13 @@ class FindContact:
             contact_id = str(contact.get("id", ""))
             props = contact.get("properties", {}) or {}
             email = str(props.get("email", "") or "").strip().lower()
-            phone = str(props.get("phone", "") or "").strip()
+            raw_phone = str(props.get("phone", "") or "").strip()
+            norm_phone = normalize_vn_phone(raw_phone) or raw_phone
 
             if email and email not in self._email_map:
                 self._email_map[email] = contact_id
-            if phone and phone not in self._phone_map:
-                self._phone_map[phone] = contact_id
+            if norm_phone and norm_phone not in self._phone_map:
+                self._phone_map[norm_phone] = contact_id
 
         return self._has_more
 
@@ -146,12 +148,13 @@ class FindContact:
         Returns:
             HubSpot contact ID if found, empty string otherwise.
         """
-        if raw_phone in self._phone_map:
-            return self._phone_map[raw_phone]
+        lookup_phone = normalize_vn_phone(raw_phone) or raw_phone.strip()
+        if lookup_phone in self._phone_map:
+            return self._phone_map[lookup_phone]
         while self._has_more:
             self._load_next_page()
-            if raw_phone in self._phone_map:
-                return self._phone_map[raw_phone]
+            if lookup_phone in self._phone_map:
+                return self._phone_map[lookup_phone]
         return ""
 
 
@@ -175,27 +178,47 @@ def _row_to_properties(record: dict) -> dict:
     """Convert a sheet row dictionary to a HubSpot properties dict.
 
     Drops internal metadata fields like '_row_number', 'status', 'hubspot_id'
-    and empty/None values.
+    and empty/None values. Normalizes phone numbers to '+84...' format.
     """
     excluded_fields = {"_row_number", "status", "hubspot_id"}
-    return {
-        key: str(value).strip()
-        for key, value in record.items()
-        if key not in excluded_fields and value is not None and str(value).strip() != ""
-    }
+    properties = {}
+    for key, value in record.items():
+        if key in excluded_fields or value is None:
+            continue
+        val_str = str(value).strip()
+        if not val_str:
+            continue
+
+        if key.lower() == "phone":
+            properties[key] = normalize_vn_phone(val_str) or val_str
+        else:
+            properties[key] = val_str
+
+    return properties
 
 
 def _validate_contact_data(record: dict) -> tuple[bool, str]:
     """Validate contact data before syncing.
 
-    Currently temporary pass: considers data valid if either email or phone is present.
-    Returns (is_valid, error_message).
+    Checks:
+        1. At least email or phone must be present.
+        2. If phone is present, it must be a valid Vietnamese mobile number.
+
+    Returns:
+        (is_valid, error_message).
     """
     email = str(record.get("email", "") or "").strip()
     phone = str(record.get("phone", "") or "").strip()
 
     if not email and not phone:
         return False, "Thiếu cả email và phone"
+
+    if phone and not normalize_vn_phone(phone):
+        return (
+            False,
+            f"Số điện thoại '{phone}' không đúng định dạng số di động Việt Nam",
+        )
+
     return True, ""
 
 
