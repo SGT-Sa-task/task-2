@@ -16,12 +16,14 @@
 │   ├── conftest.py             # Fixtures dùng chung (mock env vars, dữ liệu mẫu)
 │   ├── test_gsheet_api.py      # Kiểm thử Google Sheets API
 │   ├── test_hubpot_api.py      # Kiểm thử HubSpot API
+│   ├── test_phone_utils.py     # Kiểm thử tiện ích chuẩn hóa số điện thoại VN
 │   ├── test_sheet_storage_service.py # Kiểm thử module lưu trữ sheet và bot
 │   └── test_sync_service.py    # Kiểm thử logic đồng bộ và FindContact
 ├── core/                       # Module giao tiếp API bên ngoài
 │   ├── __init__.py
 │   ├── gsheet_api.py           # Đọc/ghi dữ liệu Google Sheets
-│   └── hubspot_api.py          # Tìm kiếm và Create/Update Contact
+│   ├── hubspot_api.py          # Tìm kiếm và Create/Update Contact
+│   └── phone_utils.py          # Xác thực và chuẩn hóa số điện thoại VN (+84...)
 ├── services/                   # Module chứa logic nghiệp vụ
 │   ├── __init__.py
 │   ├── sheet_storage_service.py # Quản lý đọc/ghi local-data.csv và bot-account.txt
