@@ -1,0 +1,4 @@
+16/10/2026 - Võ Văn Sáng
+Task 2: Import Contact từ Google Sheet vào HubSpot
+Đang triển khai luồng import từ Google Sheet vào HubSpot Đã hoàn thành flow 80%
+Đang gặp lỗi 400 bad request ở hubspot_api 
