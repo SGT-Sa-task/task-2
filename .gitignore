@@ -1,0 +1,41 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyo
+*.pyd
+.Python
+
+# Virtual environment
+.venv/
+venv/
+env/
+ENV/
+
+# Environment variables & credentials
+.env
+credentials.json
+
+# Distribution / packaging
+dist/
+build/
+*.egg-info/
+
+# Linter / formatter cache
+.flake8
+.mypy_cache/
+.ruff_cache/
+
+# Test cache
+.pytest_cache/
+htmlcov/
+.coverage
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
