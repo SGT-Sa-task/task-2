@@ -169,3 +169,21 @@ def retrieve_contacts(
         data.get("results", []),
         data.get("paging", {}).get("next", {}).get("after", ""),
     )
+
+
+def delete_contact(contact_id: str) -> bool:
+    """Delete (archive) a contact from HubSpot by ID.
+
+    Args:
+        contact_id: The HubSpot internal ID of the contact.
+
+    Returns:
+        True if successfully deleted, raises HTTPError otherwise.
+    """
+    response = requests.delete(
+        f"{BASE_URL}/{contact_id}",
+        headers=_headers(),
+        timeout=15,
+    )
+    response.raise_for_status()
+    return True

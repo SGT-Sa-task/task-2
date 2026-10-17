@@ -45,6 +45,23 @@ def get_worksheet(sheet_url: str) -> gspread.Worksheet:
     return spreadsheet.sheet1
 
 
+def get_spreadsheet_info(sheet_url: str) -> dict[str, str]:
+    """Retrieve spreadsheet title and ID given its URL.
+
+    Args:
+        sheet_url: Public or shared Google Sheet URL.
+
+    Returns:
+        dict with 'title' and 'id'.
+    """
+    client = _get_client()
+    spreadsheet = client.open_by_url(sheet_url)
+    return {
+        "title": spreadsheet.title,
+        "id": spreadsheet.id,
+    }
+
+
 def read_contact_rows(worksheet: gspread.Worksheet) -> tuple[list[str], list[dict]]:
     """Read all contact rows along with header and 1-indexed sheet row numbers.
 

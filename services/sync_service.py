@@ -163,6 +163,7 @@ class SyncResult:
     updated: int = 0
     failed: int = 0
     errors: List[str] = field(default_factory=list)
+    created_contact_ids: List[str] = field(default_factory=list)
 
     @property
     def total(self) -> int:
@@ -209,19 +210,30 @@ def _col_idx_to_letter(col_idx: int) -> str:
     return "".join(reversed(result))
 
 
-def run_sync() -> SyncResult:
+def run_sync(
+    sheet_url: Optional[str] = None,
+    sync_mode: str = "NEW",
+) -> SyncResult:
     """Read contacts from Google Sheets and upsert them into HubSpot.
 
-    Only processes rows with status="NEW".
+    Processes rows based on sync_mode:
+        - "NEW": Only processes rows with status="NEW".
+        - "RETRY": Only processes rows with status="ERROR".
+
     Updates status ('SUCCESS', 'UPDATED', 'ERROR') and HubSpot ID in Google Sheet
     via a batch update call.
+
+    Args:
+        sheet_url: Optional Google Sheet URL. Defaults to config.GOOGLE_SHEET_URL.
+        sync_mode: Synchronization mode, either "NEW" or "RETRY". Defaults to "NEW".
 
     Returns:
         A SyncResult with counts of created, updated, and failed records.
     """
     result = SyncResult()
 
-    worksheet = gsheet_api.get_worksheet(config.GOOGLE_SHEET_URL)
+    target_sheet_url = sheet_url or config.GOOGLE_SHEET_URL
+    worksheet = gsheet_api.get_worksheet(target_sheet_url)
     headers, records = gsheet_api.read_contact_rows(worksheet)
 
     # Determine 1-indexed column indices for 'status' and 'hubspot_id'
@@ -234,25 +246,37 @@ def run_sync() -> SyncResult:
     hubspot_id_col_idx = (
         headers_lower.index("hubspot_id") + 1 if "hubspot_id" in headers_lower else None
     )
+    error_mes_col_idx = (
+        headers_lower.index("error_message") + 1
+        if "error_message" in headers_lower
+        else None
+    )
 
-    # Filter rows that have status="NEW"
-    new_records = [
-        rec
-        for rec in records
-        if str(rec.get("status", "") or "").strip().upper() == "NEW"
-        or str(rec.get("status", "") or "").strip().upper() == "ERROR"
-    ]
+    # Filter rows based on sync_mode
+    mode_upper = sync_mode.strip().upper()
+    if mode_upper == "RETRY":
+        target_records = [
+            rec
+            for rec in records
+            if str(rec.get("status", "") or "").strip().upper() == "ERROR"
+        ]
+    else:
+        target_records = [
+            rec
+            for rec in records
+            if str(rec.get("status", "") or "").strip().upper() == "NEW"
+        ]
 
-    if not new_records:
+    if not target_records:
         return result
 
     # Find matching HubSpot contacts (Email -> Phone fallback)
     finder = FindContact()
-    id_map = finder.find(new_records)
+    id_map = finder.find(target_records)
 
     sheet_updates: list[dict] = []
 
-    for rec in new_records:
+    for rec in target_records:
         row_num = rec["_row_number"]
         raw_email = str(rec.get("email", "") or "").strip()
         raw_phone = str(rec.get("phone", "") or "").strip()
@@ -267,6 +291,13 @@ def run_sync() -> SyncResult:
                     {
                         "range": f"{_col_idx_to_letter(status_col_idx)}{row_num}",
                         "values": [["ERROR"]],
+                    }
+                )
+            if error_mes_col_idx:
+                sheet_updates.append(
+                    {
+                        "range": f"{_col_idx_to_letter(error_mes_col_idx)}{row_num}",
+                        "values": [[str(val_err)]],
                     }
                 )
             continue
@@ -292,6 +323,8 @@ def run_sync() -> SyncResult:
                 hubspot_id = str(resp.get("id", ""))
                 status = "SUCCESS"
                 result.created += 1
+                if hubspot_id:
+                    result.created_contact_ids.append(hubspot_id)
 
             if status_col_idx:
                 sheet_updates.append(
@@ -322,6 +355,13 @@ def run_sync() -> SyncResult:
                         "values": [["ERROR"]],
                     }
                 )
+            if error_mes_col_idx:
+                sheet_updates.append(
+                    {
+                        "range": f"{_col_idx_to_letter(error_mes_col_idx)}{row_num}",
+                        "values": [[str(response.json())]],
+                    }
+                )
         except Exception as exc:  # noqa: BLE001
             result.failed += 1
             identifier = raw_email or raw_phone or f"Row {row_num}"
@@ -333,9 +373,42 @@ def run_sync() -> SyncResult:
                         "values": [["ERROR"]],
                     }
                 )
-
+            if error_mes_col_idx:
+                sheet_updates.append(
+                    {
+                        "range": f"{_col_idx_to_letter(error_mes_col_idx)}{row_num}",
+                        "values": [[str(exc)]],
+                    }
+                )
     # Step 4: Batch update back to Google Sheets
     if sheet_updates:
         gsheet_api.batch_update_cells(worksheet, sheet_updates)
 
     return result
+
+
+def restore_created_contacts(contact_ids: list[str]) -> tuple[int, list[str]]:
+    """Delete recently created contacts from HubSpot CRM.
+
+    Does not modify or revert any data in the Google Sheet.
+
+    Args:
+        contact_ids: List of HubSpot contact IDs to delete.
+
+    Returns:
+        A tuple of (deleted_count, list_of_error_messages).
+    """
+    deleted_count = 0
+    errors: list[str] = []
+
+    for cid in contact_ids:
+        cid_str = str(cid).strip()
+        if not cid_str:
+            continue
+        try:
+            hubspot_api.delete_contact(cid_str)
+            deleted_count += 1
+        except Exception as exc:  # noqa: BLE001
+            errors.append(f"Contact ID {cid_str}: {exc}")
+
+    return deleted_count, errors
