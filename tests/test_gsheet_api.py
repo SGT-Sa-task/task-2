@@ -161,6 +161,30 @@ class TestReadContacts:
         assert df.empty
 
 
+class TestGetSpreadsheetInfo:
+    """Tests for ``gsheet_api.get_spreadsheet_info``."""
+
+    def test_get_spreadsheet_info_success(self, mocker: MockerFixture):
+        """get_spreadsheet_info() should return dict with title and id."""
+        fake_url = "https://docs.google.com/spreadsheets/d/test-sheet-id"
+        mock_spreadsheet = mocker.MagicMock()
+        mock_spreadsheet.title = "Sample Sheet Title"
+        mock_spreadsheet.id = "test-sheet-id"
+
+        mock_client = mocker.MagicMock()
+        mock_client.open_by_url.return_value = mock_spreadsheet
+
+        mocker.patch("core.gsheet_api._get_client", return_value=mock_client)
+
+        info = gsheet_api.get_spreadsheet_info(fake_url)
+
+        assert info == {
+            "title": "Sample Sheet Title",
+            "id": "test-sheet-id",
+        }
+        mock_client.open_by_url.assert_called_once_with(fake_url)
+
+
 class TestRealGSheetAPI:
     """Integration test suite connecting to Google Sheets API with real credentials."""
 

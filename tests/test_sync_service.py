@@ -4,7 +4,7 @@ tests/test_sync_service.py — Unit tests for sync_service.py.
 
 from unittest.mock import call, patch
 
-from services.sync_service import FindContact
+from services.sync_service import FindContact, restore_created_contacts, run_sync
 
 
 def test_find_contact_empty_records():
@@ -154,3 +154,66 @@ def test_run_sync_flow(
         {"range": "D5", "values": [["ERROR"]]},
     ]
     assert call_data == expected_updates
+
+
+def test_run_sync_retry_mode(mocker):
+    """run_sync(sync_mode='RETRY') should only process rows with status='ERROR'."""
+    mocker.patch("core.gsheet_api.get_worksheet")
+    mock_read_rows = mocker.patch("core.gsheet_api.read_contact_rows")
+    mock_batch_update = mocker.patch("core.gsheet_api.batch_update_cells")
+    mock_find_contact_cls = mocker.patch("services.sync_service.FindContact")
+    mock_create_contact = mocker.patch("core.hubspot_api.create_contact")
+    mocker.patch("core.hubspot_api.update_contact")
+
+    headers = ["firstname", "email", "phone", "status", "hubspot_id"]
+    records = [
+        # Row 2: NEW (should be skipped in RETRY mode)
+        {
+            "_row_number": 2,
+            "email": "new@example.com",
+            "phone": "0111",
+            "firstname": "NewUser",
+            "status": "NEW",
+            "hubspot_id": "",
+        },
+        # Row 3: ERROR (should be processed in RETRY mode)
+        {
+            "_row_number": 3,
+            "email": "error@example.com",
+            "phone": "0222",
+            "firstname": "ErrorUser",
+            "status": "ERROR",
+            "hubspot_id": "",
+        },
+    ]
+    mock_read_rows.return_value = (headers, records)
+
+    mock_finder = mock_find_contact_cls.return_value
+    mock_finder.find.return_value = {}
+    mock_create_contact.return_value = {"id": "hub_789"}
+
+    result = run_sync(sync_mode="RETRY")
+
+    assert result.created == 1
+    assert result.updated == 0
+    assert result.failed == 0
+    assert result.total == 1
+
+    mock_create_contact.assert_called_once_with(
+        {"email": "error@example.com", "phone": "0222", "firstname": "ErrorUser"}
+    )
+    mock_batch_update.assert_called_once()
+    assert result.created_contact_ids == ["hub_789"]
+
+
+def test_restore_created_contacts(mocker):
+    """restore_created_contacts() should call delete_contact for each contact ID."""
+    mock_delete = mocker.patch("services.sync_service.hubspot_api.delete_contact")
+
+    del_count, errors = restore_created_contacts(["hub_1", "hub_2"])
+
+    assert del_count == 2
+    assert errors == []
+    assert mock_delete.call_count == 2
+    mock_delete.assert_any_call("hub_1")
+    mock_delete.assert_any_call("hub_2")
